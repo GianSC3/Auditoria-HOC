@@ -404,10 +404,10 @@ function distribuirDesviosAHojas(ss, desviosPorAreaYMes) {
     desviosDistribuidos: 0,
     desviosEliminados: 0,
     hojaCreadas: 0,
-    desviosAntiguosLimpiados: 0  // Nuevo contador para desvíos limpiados
+    desviosAntiguosLimpiados: 0
   };
   
-  // NUEVO: Obtener fechas de últimas auditorías por área
+  // Obtener fechas de últimas auditorías por área
   var fechasUltimasAuditorias = obtenerFechasUltimasAuditorias();
   
   // Para cada área con desvíos
@@ -423,14 +423,14 @@ function distribuirDesviosAHojas(ss, desviosPorAreaYMes) {
     // Primero, consolidar los desvíos existentes antes de cualquier modificación
     consolidarDesviosDesdeHojaArea(hojaArea);
     
-    // NUEVO: Limpiar desvíos antiguos en "Inconformidades" cuando hay una nueva auditoría
+    // Limpiar desvíos antiguos en "Inconformidades" cuando hay una nueva auditoría
     var fechaUltimaAuditoria = fechasUltimasAuditorias[area];
     if (fechaUltimaAuditoria) {
       var desviosLimpiados = limpiarDesviosAntiguos(area, fechaUltimaAuditoria);
       estadisticas.desviosAntiguosLimpiados += desviosLimpiados;
     }
     
-    // MODIFICADO: Filtrar solo los desvíos de la última auditoría para esta área
+    // Filtrar solo los desvíos de la última auditoría para esta área
     var desviosFiltrados = [];
     
     // Si tenemos fecha de última auditoría
@@ -441,25 +441,33 @@ function distribuirDesviosAHojas(ss, desviosPorAreaYMes) {
         todosDesvios = todosDesvios.concat(desviosPorAreaYMes[area][mesAnio]);
       }
       
-      // NUEVO: Filtrar desvíos por fecha (mismo día de la última auditoría)
+      // Filtrar desvíos por fecha (mismo día de la última auditoría)
       desviosFiltrados = todosDesvios.filter(function(desvio) {
-        // Para cada desvío, verificamos si es del mismo día de la última auditoría
         return esMismaFechaAuditoria(desvio.fecha, fechaUltimaAuditoria);
+      });
+      
+      // NUEVO: Verificar si hay un registro "No se presentan desvíos"
+      var tieneRegistroNoHayDesvios = desviosFiltrados.some(function(desvio) {
+        return desvio.desvio === "No se presentan desvíos";
       });
       
       Logger.log("Área: " + area + " - Encontrados " + desviosFiltrados.length + 
                " desvíos de la última auditoría (" + 
                Utilities.formatDate(fechaUltimaAuditoria, Session.getScriptTimeZone(), "yyyy-MM-dd") + ")");
+      
+      if (tieneRegistroNoHayDesvios) {
+        Logger.log("Área: " + area + " - Se encontró registro 'No se presentan desvíos'");
+      }
     }
     
-    // Obtener datos existentes
+    // Obtener datos existentes para guardar información manual
     var datosExistentes = [];
     if (hojaArea.getLastRow() > 1) {
       datosExistentes = hojaArea.getRange(2, 1, hojaArea.getLastRow() - 1, hojaArea.getLastColumn()).getValues();
       estadisticas.desviosEliminados += datosExistentes.length;
     }
     
-    // Guardar datos manuales (columnas 4, 5, 6, 7) para cada punto inconforme
+    // Guardar datos manuales para cada punto inconforme
     var datosManuales = {};
     datosExistentes.forEach(function(fila) {
       var clave = formatearClave(fila[0], fila[1]); // Fecha + Punto inconforme
@@ -473,21 +481,39 @@ function distribuirDesviosAHojas(ss, desviosPorAreaYMes) {
       }
     });
     
-    // Limpiar la hoja (pero preservamos información manual)
+    // Limpiar la hoja (preservando estructura)
     if (hojaArea.getLastRow() > 1) {
       hojaArea.getRange(2, 1, hojaArea.getLastRow() - 1, hojaArea.getLastColumn()).clear();
     }
     
-    // Distribuir SOLO los desvíos de la última auditoría conservando datos manuales
+    // MODIFICADO: Manejar "No se presentan desvíos" específicamente
+    var tieneRegistroNoHayDesvios = false;
     if (desviosFiltrados && desviosFiltrados.length > 0) {
-      distribuirDesviosAHojaAreaConservandoDatos(hojaArea, desviosFiltrados, area, datosManuales);
-      estadisticas.desviosDistribuidos += desviosFiltrados.length;
-      estadisticas.areasActualizadas++;
+      // Verificar si hay un registro "No se presentan desvíos"
+      tieneRegistroNoHayDesvios = desviosFiltrados.some(function(desvio) {
+        return desvio.desvio === "No se presentan desvíos";
+      });
+      
+      if (tieneRegistroNoHayDesvios) {
+        // Si hay un registro "No se presentan desvíos", simplemente dejar la hoja limpia
+        Logger.log("Área: " + area + " - Tiene registro 'No se presentan desvíos'. Hoja se mantiene limpia.");
+        estadisticas.areasActualizadas++;
+      } else {
+        // Distribuir los desvíos normales filtrados (sin incluir "No se presentan desvíos")
+        var desviosNormales = desviosFiltrados.filter(function(desvio) {
+          return desvio.desvio !== "No se presentan desvíos";
+        });
+        
+        if (desviosNormales.length > 0) {
+          distribuirDesviosAHojaAreaConservandoDatos(hojaArea, desviosNormales, area, datosManuales);
+          estadisticas.desviosDistribuidos += desviosNormales.length;
+          estadisticas.areasActualizadas++;
+        }
+      }
     }
-    // AGREGAR ESTE NUEVO BLOQUE DE CÓDIGO:
     else if (fechaUltimaAuditoria) {
       // Si hay fecha de última auditoría pero no hay desvíos filtrados,
-      // significa que la última auditoría no tiene desvíos, por lo que la hoja ya está limpia
+      // la hoja ya está limpia
       Logger.log("Área: " + area + " - Última auditoría (" + 
                 Utilities.formatDate(fechaUltimaAuditoria, Session.getScriptTimeZone(), "yyyy-MM-dd") + 
                 ") sin desvíos. Hoja limpiada.");
@@ -515,50 +541,88 @@ function encontrarMesAnioMasReciente(desviosPorMes) {
 
 /**
  * Identifica las fechas de la auditoría más reciente para cada área
- * basándose en las respuestas del formulario
+ * basándose tanto en las respuestas del formulario como en la hoja EvidenciasDesvios
  */
 function obtenerFechasUltimasAuditorias() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var hojaRespuestas = ss.getSheetByName("Respuestas de formulario 1");
   
-  if (!hojaRespuestas) {
-    return {};
-  }
+  // NUEVO: Obtener fechas desde la hoja EvidenciasDesvios
+  var hojaEvidencias = ss.getSheetByName("EvidenciasDesvios");
+  var fechasDeEvidencias = {};
   
-  // Obtener datos de todas las respuestas
-  var datosRespuestas = hojaRespuestas.getDataRange().getValues();
-  var encabezados = datosRespuestas[0];
-  
-  // Identificar índices de columnas necesarias
-  var idxMarcaTemporal = encontrarIndiceEncabezado(encabezados, "Marca temporal");
-  var idxArea = encontrarIndiceEncabezado(encabezados, "Área auditada");
-  
-  // Si no encontramos las columnas necesarias, retornar objeto vacío
-  if (idxMarcaTemporal < 0 || idxArea < 0) {
-    return {};
-  }
-  
-  // Mapa para guardar la fecha más reciente de auditoría por área
-  var fechasUltimasAuditorias = {};
-  
-  // Procesar cada respuesta (omitiendo la fila de encabezados)
-  for (var i = 1; i < datosRespuestas.length; i++) {
-    var fila = datosRespuestas[i];
-    var marcaTemporal = fila[idxMarcaTemporal]; // Fecha de la auditoría
-    var area = fila[idxArea]; // Área auditada
+  if (hojaEvidencias && hojaEvidencias.getLastRow() > 1) {
+    var datosEvidencias = hojaEvidencias.getRange(2, 1, hojaEvidencias.getLastRow() - 1, 2).getValues();
     
-    // Solo procesar si tenemos tanto fecha como área
-    if (marcaTemporal && area) {
-      // Convertir string a Date si es necesario
-      if (typeof marcaTemporal === 'string') {
-        marcaTemporal = new Date(marcaTemporal);
-      }
+    // Identificar la fecha más reciente para cada área desde EvidenciasDesvios
+    for (var i = 0; i < datosEvidencias.length; i++) {
+      var fechaDesvio = datosEvidencias[i][0]; // Columna A - Fecha
+      var areaDesvio = datosEvidencias[i][1]; // Columna B - Área
       
-      // Actualizar la fecha más reciente para esta área
-      if (!fechasUltimasAuditorias[area] || marcaTemporal > fechasUltimasAuditorias[area]) {
-        fechasUltimasAuditorias[area] = marcaTemporal;
+      if (fechaDesvio && areaDesvio) {
+        if (!fechasDeEvidencias[areaDesvio] || fechaDesvio > fechasDeEvidencias[areaDesvio]) {
+          fechasDeEvidencias[areaDesvio] = fechaDesvio;
+        }
       }
     }
+  }
+  
+  // Código original: obtener fechas desde respuestas de formulario
+  var hojaRespuestas = ss.getSheetByName("Respuestas de formulario 1");
+  var fechasDeFormulario = {};
+  
+  if (hojaRespuestas) {
+    // Obtener datos de todas las respuestas
+    var datosRespuestas = hojaRespuestas.getDataRange().getValues();
+    var encabezados = datosRespuestas[0];
+    
+    // Identificar índices de columnas necesarias
+    var idxMarcaTemporal = encontrarIndiceEncabezado(encabezados, "Marca temporal");
+    var idxArea = encontrarIndiceEncabezado(encabezados, "Área auditada");
+    
+    // Si encontramos las columnas necesarias, procesar los datos
+    if (idxMarcaTemporal >= 0 && idxArea >= 0) {
+      // Procesar cada respuesta (omitiendo la fila de encabezados)
+      for (var i = 1; i < datosRespuestas.length; i++) {
+        var fila = datosRespuestas[i];
+        var marcaTemporal = fila[idxMarcaTemporal]; // Fecha de la auditoría
+        var area = fila[idxArea]; // Área auditada
+        
+        // Solo procesar si tenemos tanto fecha como área
+        if (marcaTemporal && area) {
+          // Convertir string a Date si es necesario
+          if (typeof marcaTemporal === 'string') {
+            marcaTemporal = new Date(marcaTemporal);
+          }
+          
+          // Actualizar la fecha más reciente para esta área
+          if (!fechasDeFormulario[area] || marcaTemporal > fechasDeFormulario[area]) {
+            fechasDeFormulario[area] = marcaTemporal;
+          }
+        }
+      }
+    }
+  }
+  
+  // NUEVO: Combinar ambas fuentes, priorizando la fecha más reciente
+  var fechasUltimasAuditorias = {};
+  
+  // Primero añadir todas las fechas de evidencias
+  for (var area in fechasDeEvidencias) {
+    fechasUltimasAuditorias[area] = fechasDeEvidencias[area];
+    Logger.log("Fecha de EvidenciasDesvios para " + area + ": " + Utilities.formatDate(fechasDeEvidencias[area], Session.getScriptTimeZone(), "dd/MM/yyyy"));
+  }
+  
+  // Luego añadir o actualizar con fechas de formularios si son más recientes
+  for (var area in fechasDeFormulario) {
+    if (!fechasUltimasAuditorias[area] || fechasDeFormulario[area] > fechasUltimasAuditorias[area]) {
+      fechasUltimasAuditorias[area] = fechasDeFormulario[area];
+      Logger.log("Actualizada fecha para " + area + " desde formulario: " + Utilities.formatDate(fechasDeFormulario[area], Session.getScriptTimeZone(), "dd/MM/yyyy"));
+    }
+  }
+  
+  // Registrar en el log todas las fechas finales para depuración
+  for (var area in fechasUltimasAuditorias) {
+    Logger.log("FECHA FINAL para " + area + ": " + Utilities.formatDate(fechasUltimasAuditorias[area], Session.getScriptTimeZone(), "dd/MM/yyyy"));
   }
   
   return fechasUltimasAuditorias;
