@@ -10,7 +10,7 @@
 /**
  * Procesa evidencias de desvíos desde "Respuestas de formulario 1" a "EvidenciasDesvios"
  * Versión mejorada: Evita duplicados, formato de fecha sin ceros iniciales, centrado
- * También detecta y omite auditorías sin desvíos reales
+ * También detecta y crea registros específicos para auditorías sin desvíos reales
  */
 function procesarEvidenciasDesvios(mostrarAlertas) {
   // Si no se especifica, no mostrar alertas por defecto (para activadores automáticos)
@@ -84,7 +84,7 @@ function procesarEvidenciasDesvios(mostrarAlertas) {
     var totalProcesados = 0;
     var registrosOmitidos = 0;
     var duplicadosEvitados = 0;
-    var sinDesviosReales = 0;  // Nuevo contador para auditorías sin desvíos reales
+    var sinDesviosReales = 0;  // Contador para auditorías sin desvíos reales
     
     // Fecha límite: Mayo 2025
     var mesFiltro = 5;
@@ -123,8 +123,21 @@ function procesarEvidenciasDesvios(mostrarAlertas) {
             esAuditoriaCompleta = true;
             sinDesviosReales++;
             
-            // Saltamos al siguiente registro, pero la auditoría ya fue registrada
-            // para propósitos de fecha más reciente en obtenerFechasUltimasAuditorias()
+            // NUEVO: Agregar un registro explícito que indique que no hay desvíos
+            var claveDesvioEspecial = crearClaveEvidencia(fecha, area, "No se presentan desvíos");
+            if (!desviosExistentes[claveDesvioEspecial]) {
+              nuevosDesvios.push([
+                fecha,                    // Fecha
+                area,                     // Área
+                "No se presentan desvíos", // Desvío (observación especial)
+                ""                        // Link (vacío)
+              ]);
+              
+              totalProcesados++;
+              desviosExistentes[claveDesvioEspecial] = true;
+            }
+            
+            // Ya agregamos el registro especial, continuamos con la siguiente respuesta
             continue;
           }
         }
@@ -214,6 +227,10 @@ function procesarEvidenciasDesvios(mostrarAlertas) {
               sinDesviosReales + " auditorías sin desvíos reales.");
     
     // Mostrar mensaje de éxito solo si se solicita explícitamente
+    if (mostrarAlertas && totalProcesados > 0) {
+      SpreadsheetApp.getUi().alert("Procesamiento completado: " + totalProcesados + " desvíos procesados.\n" +
+                                  "Incluyendo " + sinDesviosReales + " auditorías sin desvíos reales.");
+    }
     
     return totalProcesados;
     
@@ -465,6 +482,15 @@ function distribuirDesviosAHojas(ss, desviosPorAreaYMes) {
     if (desviosFiltrados && desviosFiltrados.length > 0) {
       distribuirDesviosAHojaAreaConservandoDatos(hojaArea, desviosFiltrados, area, datosManuales);
       estadisticas.desviosDistribuidos += desviosFiltrados.length;
+      estadisticas.areasActualizadas++;
+    }
+    // AGREGAR ESTE NUEVO BLOQUE DE CÓDIGO:
+    else if (fechaUltimaAuditoria) {
+      // Si hay fecha de última auditoría pero no hay desvíos filtrados,
+      // significa que la última auditoría no tiene desvíos, por lo que la hoja ya está limpia
+      Logger.log("Área: " + area + " - Última auditoría (" + 
+                Utilities.formatDate(fechaUltimaAuditoria, Session.getScriptTimeZone(), "yyyy-MM-dd") + 
+                ") sin desvíos. Hoja limpiada.");
       estadisticas.areasActualizadas++;
     }
   }
